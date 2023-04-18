@@ -15,4 +15,4 @@ poetry install
 poetry run python game.py
 ```
 
-![img.png](img.png)
+![img.png](resources/img.png)

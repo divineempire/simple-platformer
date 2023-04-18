@@ -1,5 +1,6 @@
 import arcade
 import level
+from util.animation import SpriteAnimation
 
 SCREEN_WIDTH = 1024
 SCREEN_HEIGHT = 720
@@ -22,17 +23,21 @@ class PlatformerGame(arcade.Window):
 
         self.physics_engine = None
         self.gui_camera = None
+        self.camera = None
+        self.health = 20
+
+        self.current_player_animation = None
 
         self.idle_sprites = arcade.load_spritesheet('resources/player_idle.png', 84, 97, 3, 3)
         self.walk_sprites = arcade.load_spritesheet('resources/player_walk.png', 83, 95, 6, 6)
-
-        self.idle_sprite_index = 0
+        self.death_sprites = arcade.load_spritesheet('resources/player_death.png', 94, 75, 4, 4)
 
         # Звуки (встроенные)
         self.collect_coin_sound = arcade.load_sound(":resources:sounds/coin2.wav")
         self.jump_sound = arcade.load_sound(":resources:sounds/jump2.wav")
         self.death_sound = arcade.load_sound(":resources:sounds/explosion2.wav")
         self.win_sound = arcade.load_sound(":resources:sounds/upgrade1.wav")
+        self.hurt_sound = arcade.load_sound(":resources:sounds/hurt1.wav")
 
         # Загружаем фон
         self.background = arcade.load_texture("resources/background.png")
@@ -41,18 +46,25 @@ class PlatformerGame(arcade.Window):
         self.gui_camera = arcade.camera.Camera(viewport_width=self.width, viewport_height=self.height)
 
         self.scene = arcade.Scene()
+        self.camera = arcade.camera.Camera(viewport_width=self.width, viewport_height=self.height)
 
         # Анимация персонажа
-        self.player_sprite = arcade.AnimatedWalkingSprite()
-        self.player_sprite.walk_right_textures = self.walk_sprites
-        self.player_sprite.walk_left_textures = self.walk_sprites
-        self.player_sprite.scale = CHARACTER_SCALING
+        self.player_sprite = arcade.Sprite(scale=CHARACTER_SCALING)
+
+        self.switch_animation(self.idle_sprites, 0.2)
 
         self.player_sprite.center_x = 64
         self.player_sprite.center_y = 96
+
         self.scene.add_sprite("Player", self.player_sprite)
 
         self.physics_engine = level.populate(self)
+
+    def switch_animation(self, frames, delay=0.1, loop=True):
+        if self.current_player_animation is not None and self.current_player_animation.textures == frames:
+            return
+
+        self.current_player_animation = SpriteAnimation(self.player_sprite, frames, delay, loop)
 
     def on_draw(self):
         arcade.start_render()
@@ -61,6 +73,8 @@ class PlatformerGame(arcade.Window):
         arcade.set_background_color(arcade.csscolor.WHITE)
         arcade.draw_lrwh_rectangle_textured(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, self.background)
 
+        self.camera.use()
+
         # Рисуем все спрайты
         self.scene.draw()
 
@@ -68,20 +82,63 @@ class PlatformerGame(arcade.Window):
 
         # Рисуем сколько монет осталось собрать
         arcade.draw_text(
-            f"Осталось монет: {len(self.scene['Coins'])}",
+            f"Нужно собрать: {len(self.scene['Coins'])}",
             10,
+            SCREEN_HEIGHT - 80,
+            arcade.csscolor.WHITE,
+            18,
+        )
+        # Рисуем монетку возле текста
+        arcade.draw_lrwh_rectangle_textured(
+            10 + 210,
+            SCREEN_HEIGHT - 88,
+            32,
+            32,
+            arcade.load_texture(":resources:images/items/coinGold.png")
+        )
+
+        # Рисуем сколько жизней осталось вверху экрана белым текстом
+        arcade.draw_text(
+            f"Жизней: {self.health}",
             10,
-            arcade.csscolor.BLACK,
+            SCREEN_HEIGHT - 30,
+            arcade.csscolor.WHITE,
             18,
         )
 
+    def hurt(self):
+        self.health = max(0, self.health - 5)
+
+        arcade.play_sound(self.hurt_sound, volume=0.2)
+
+        # Откидываем персонажа в сторону исходя из направления движения
+        self.player_sprite.change_x = \
+            -PLAYER_MOVEMENT_SPEED * 2 if self.player_sprite.change_x > 0 else PLAYER_MOVEMENT_SPEED * 2
+        self.player_sprite.change_y = 5
+
+        # Мигаем спрайтом красным цветом
+        self.player_sprite.color = arcade.csscolor.RED
+        arcade.schedule(lambda _: setattr(self.player_sprite, "color", arcade.csscolor.WHITE), 0.1)
+
+    def center_player_camera(self):
+        screen_center_x = self.player_sprite.center_x - (self.camera.viewport_width / 2)
+        screen_center_y = self.player_sprite.center_y - (
+                self.camera.viewport_height / 2
+        )
+        if screen_center_x < 0:
+            screen_center_x = 0
+        if screen_center_y < 0:
+            screen_center_y = 0
+        player_centered = screen_center_x, screen_center_y
+
+        self.camera.move_to(player_centered)
+
     def on_key_press(self, key, modifiers):
         # Механика прыжка и движения
-
         if key == arcade.key.UP or key == arcade.key.W:
             if self.physics_engine.can_jump():
                 self.player_sprite.change_y = PLAYER_JUMP_SPEED
-                arcade.play_sound(self.jump_sound)
+                arcade.play_sound(self.jump_sound, volume=0.2)
         elif key == arcade.key.LEFT or key == arcade.key.A:
             self.player_sprite.change_x = -PLAYER_MOVEMENT_SPEED
         elif key == arcade.key.RIGHT or key == arcade.key.D:
@@ -94,23 +151,33 @@ class PlatformerGame(arcade.Window):
         elif key == arcade.key.RIGHT or key == arcade.key.D:
             self.player_sprite.change_x = 0
 
+    def reset_level(self):
+        self.player_sprite.center_x = 64
+        self.player_sprite.center_y = 96
+
+        self.scene["Coins"].clear()
+
+        level.repopulate_tiles(self)
+
+        self.health = 20
+
     def on_update(self, delta_time):
-        # Не даем персонажу выйти за границы экрана
+        self.current_player_animation.update()
+
+        # Запрещаем двигаться влево за границу карты
         if self.player_sprite.center_x < 0:
             self.player_sprite.center_x = 0
-        if self.player_sprite.center_x > SCREEN_WIDTH:
-            self.player_sprite.center_x = SCREEN_WIDTH
 
+        if self.health == 0:
+            if self.current_player_animation.is_finished():
+                self.reset_level()
+            return
+
+        # Анимация простоя
         if self.player_sprite.change_x == 0 and self.player_sprite.change_y == 0:
-
-            self.idle_sprite_index += 0.05
-
-            if self.idle_sprite_index >= len(self.idle_sprites):
-                self.idle_sprite_index = 0
-
-            self.player_sprite.texture = self.idle_sprites[int(self.idle_sprite_index)]
+            self.switch_animation(self.idle_sprites, 0.05)
         else:
-            self.player_sprite.update_animation(delta_time)
+            self.switch_animation(self.walk_sprites, 0.1)
 
         # Обновляем физику
         self.physics_engine.update()
@@ -124,28 +191,24 @@ class PlatformerGame(arcade.Window):
             self.player_sprite, self.scene["Bombs"])
 
         if len(bomb_hit_list) > 0:
-            # Мы попали в бомбу, поэтому убиваем игрока
-            self.player_sprite.center_x = 64
-            self.player_sprite.center_y = 96
+            # Мы попали в бомбу, отнимаем жизнь
+            self.hurt()
 
-            arcade.play_sound(self.death_sound)
-
-            # Clear coins
-            self.scene["Coins"].clear()
-            level.add_coins(self)
+            if self.health == 0:
+                arcade.play_sound(self.death_sound, volume=0.2)
+                self.switch_animation(self.death_sprites, 0.1, False)
+            return
 
         # Проверяем, собрали ли мы все монеты
         for coin in coin_hit_list:
             coin.remove_from_sprite_lists()
-            arcade.play_sound(self.collect_coin_sound)
+            arcade.play_sound(self.collect_coin_sound, volume=0.2)
 
         if len(self.scene["Coins"]) == 0:
-            # Мы собрали все монеты, поэтому перезапускаем уровень
-            self.player_sprite.center_x = 64
-            self.player_sprite.center_y = 96
+            arcade.play_sound(self.win_sound, volume=0.2)
+            self.reset_level()
 
-            arcade.play_sound(self.win_sound)
-            level.add_coins(self)
+        self.center_player_camera()
 
 
 def main():
