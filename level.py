@@ -1,5 +1,4 @@
 from arcade import PhysicsEnginePlatformer, SpriteList
-from game import PlatformerGame
 
 import random
 import arcade
@@ -19,7 +18,7 @@ class MoveDirection:
     RIGHT = (1, 0)
 
 
-def populate(game: PlatformerGame) -> PhysicsEnginePlatformer:
+def populate(game) -> PhysicsEnginePlatformer:
     add_platform(game, ":resources:images/tiles/dirt.png", 0, 32, 3000)
 
     # Платформы сверху
@@ -77,7 +76,7 @@ def fill_with_tiles(game, filename, from_x, length, y, sprite_list_name, count=1
         game.scene.add_sprite(sprite_list_name, tile)
 
 
-def add_platform(game: PlatformerGame,
+def add_platform(game,
                  filename, x, y,
                  length=100,
                  move_direction=None):

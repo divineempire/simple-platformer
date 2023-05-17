@@ -1,5 +1,7 @@
 import arcade
 import level
+import scores
+
 from util.animation import SpriteAnimation
 
 SCREEN_WIDTH = 1024
@@ -19,12 +21,24 @@ class PlatformerGame(arcade.Window):
 
         self.scene = None
 
+        self.scores = []
+        self.last_score = None
+        self.best_score = None
+
         self.player_sprite = None
 
         self.physics_engine = None
         self.gui_camera = None
         self.camera = None
         self.health = 20
+        self.score = 0
+        self.paused = True
+
+        # Создаем кнопку старта
+        self.start_button = arcade.Sprite("resources/start_button.png")
+        self.start_button.scale = 0.5
+        self.start_button.center_x = SCREEN_WIDTH // 2
+        self.start_button.center_y = SCREEN_HEIGHT // 2 + 50
 
         self.current_player_animation = None
 
@@ -56,6 +70,10 @@ class PlatformerGame(arcade.Window):
         self.player_sprite.center_x = 64
         self.player_sprite.center_y = 96
 
+        self.scores = scores.get_scores()
+        self.last_score = 0
+        self.best_score = 0
+
         self.scene.add_sprite("Player", self.player_sprite)
 
         self.physics_engine = level.populate(self)
@@ -79,6 +97,27 @@ class PlatformerGame(arcade.Window):
         self.scene.draw()
 
         self.gui_camera.use()
+
+        if self.paused:
+            # Рисуем кнопку старта
+            self.start_button.draw()
+
+            # Создаем надписи с очками
+            arcade.draw_text(
+                f"Последний счет: {self.last_score}",
+                font_size=20,
+                start_x=SCREEN_WIDTH // 2,
+                start_y=SCREEN_HEIGHT // 2 - 170,
+                anchor_x="center",
+            )
+            arcade.draw_text(
+                f"Лучший счет: {self.best_score}",
+                font_size=20,
+                start_x=SCREEN_WIDTH // 2,
+                start_y=SCREEN_HEIGHT // 2 - 200,
+                anchor_x="center",
+            )
+            return
 
         # Рисуем сколько монет осталось собрать
         arcade.draw_text(
@@ -109,7 +148,7 @@ class PlatformerGame(arcade.Window):
     def hurt(self):
         self.health = max(0, self.health - 5)
 
-        arcade.play_sound(self.hurt_sound, volume=0.2)
+        #arcade.play_sound(self.hurt_sound, volume=0.2)
 
         # Откидываем персонажа в сторону исходя из направления движения
         self.player_sprite.change_x = \
@@ -133,18 +172,31 @@ class PlatformerGame(arcade.Window):
 
         self.camera.move_to(player_centered)
 
+    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
+        if self.start_button.collides_with_point((x, y)):
+            self.set_mouse_visible(False)
+            self.paused = False
+
     def on_key_press(self, key, modifiers):
+        if key == arcade.key.ESCAPE:
+            self.paused = not self.paused
+            self.set_mouse_visible(True)
+            return
+        if self.paused:
+            return
         # Механика прыжка и движения
         if key == arcade.key.UP or key == arcade.key.W:
             if self.physics_engine.can_jump():
                 self.player_sprite.change_y = PLAYER_JUMP_SPEED
-                arcade.play_sound(self.jump_sound, volume=0.2)
+                #arcade.play_sound(self.jump_sound, volume=0.2)
         elif key == arcade.key.LEFT or key == arcade.key.A:
             self.player_sprite.change_x = -PLAYER_MOVEMENT_SPEED
         elif key == arcade.key.RIGHT or key == arcade.key.D:
             self.player_sprite.change_x = PLAYER_MOVEMENT_SPEED
 
     def on_key_release(self, key, modifiers):
+        if self.paused:
+            return
         # Механика прыжка и движения
         if key == arcade.key.LEFT or key == arcade.key.A:
             self.player_sprite.change_x = 0
@@ -162,6 +214,12 @@ class PlatformerGame(arcade.Window):
         self.health = 20
 
     def on_update(self, delta_time):
+        self.last_score = self.scores[-1] if self.scores else 0
+        self.best_score = max(self.scores) if self.scores else 0
+
+        if self.paused:
+            return
+
         self.current_player_animation.update()
 
         # Запрещаем двигаться влево за границу карты
@@ -195,27 +253,20 @@ class PlatformerGame(arcade.Window):
             self.hurt()
 
             if self.health == 0:
-                arcade.play_sound(self.death_sound, volume=0.2)
+                # arcade.play_sound(self.death_sound, volume=0.2)
                 self.switch_animation(self.death_sprites, 0.1, False)
+                self.scores.append(self.score)
+                scores.save_scores(self.scores)
             return
 
         # Проверяем, собрали ли мы все монеты
         for coin in coin_hit_list:
             coin.remove_from_sprite_lists()
-            arcade.play_sound(self.collect_coin_sound, volume=0.2)
+            #arcade.play_sound(self.collect_coin_sound, volume=0.2)
+            self.score += 1
 
         if len(self.scene["Coins"]) == 0:
-            arcade.play_sound(self.win_sound, volume=0.2)
+            #arcade.play_sound(self.win_sound, volume=0.2)
             self.reset_level()
 
         self.center_player_camera()
-
-
-def main():
-    window = PlatformerGame()
-    window.setup()
-    arcade.run()
-
-
-if __name__ == "__main__":
-    main()

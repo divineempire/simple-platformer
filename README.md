@@ -12,7 +12,7 @@ poetry install
 
 Запустить игру:
 ```bash
-poetry run python game.py
+poetry run python main.py
 ```
 
 ![img.png](resources/img.png)
